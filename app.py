@@ -115,7 +115,7 @@ app_ui = ui.page_fluid(
 
             ui.div(
                 {"class":"card"},
-                ui.h4("Estimated In-hospital Mortality Risk"),
+                ui.h4("Estimated In-hospital Mortality Risk (%)"),
                 ui.output_ui("prob"),
                 ui.output_ui("risk_label"),
                 ui.output_ui("risk_bar"),
@@ -268,8 +268,8 @@ def server(input, output, session):
             )
 
         return ui.div(
-            row("Chills",input.chills()),
-            row("Hypothermia (<36°C)",input.hypothermia()),
+            row("No Chills",input.chills()),
+            row("Hypothermia (templo<36°C)",input.hypothermia()),
             row("Anemia (RBC < 4M/µL)",input.anemia()),
             row("RDW > 14.5%",input.rdw()),
             row("History of malignancy",input.malignancy())
