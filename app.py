@@ -125,6 +125,7 @@ app_ui = ui.page_fluid(
                          href="https://www.ncbi.nlm.nih.gov/pubmed/?term=27832977")
                 ),
                 ui.help_text("Produced by Dr. Chin-Chieh Wu")
+                ui.help_text("UI enhance and implement in SMART on FHIR by Howard")
             ),
 
             ui.div(
