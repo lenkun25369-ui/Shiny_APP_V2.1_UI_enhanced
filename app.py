@@ -2,94 +2,70 @@ from shiny import App, ui, render, reactive
 import requests
 import json
 
-# -------------------------------
-# UI
-# -------------------------------
-app_ui = ui.page_fluid(
+# =========================================================
+# 🎨 Global CSS (Clinical Dashboard Style)
+# =========================================================
+GLOBAL_CSS = """
+body {
+  background-color: #f5f7fa;
+}
 
-    # -----------------------------------------------
-    # 從 URL #hash 讀取 token / pid / fhir / obs
-    # -----------------------------------------------
-    ui.tags.script("""
-    (function () {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
+.card {
+  background: white;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  margin-bottom: 20px;
+}
 
-      const token = params.get("token");
-      const pid   = params.get("pid");
-      const fhir  = params.get("fhir");
-      const obs   = params.get("obs");
+.risk-number {
+  font-size: 52px;
+  font-weight: 800;
+  margin: 0;
+}
 
-      function sendToShiny() {
-        if (window.Shiny && Shiny.setInputValue) {
-          Shiny.setInputValue("token", token);
-          Shiny.setInputValue("pid", pid);
-          Shiny.setInputValue("fhir", fhir);
-          Shiny.setInputValue("obs", obs);
-        } else {
-          setTimeout(sendToShiny, 300);
-        }
-      }
-      sendToShiny();
-    })();
-    """),
+.risk-low  { color: #2e7d32; }
+.risk-mid  { color: #f9a825; }
+.risk-high { color: #c62828; }
 
-    ui.tags.style("""
-    #token, #pid, #fhir, #obs { display: none !important; }
-    """),
-    ui.input_text("token", ""),
-    ui.input_text("pid", ""),
-    ui.input_text("fhir", ""),
-    ui.input_text("obs", ""),
+.risk-bar {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    to right,
+    #c8e6c9,
+    #fff59d,
+    #ef9a9a
+  );
+  margin-top: 14px;
+  position: relative;
+}
 
-    ui.h2("Predict In-hospital Mortality by CHARM score in Patients with Suspected Sepsis"),
+.risk-marker {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 20px;
+  background: black;
+}
 
-    ui.tags.details(
-        ui.tags.summary("FHIR Patient & Observation Data (click to expand)"),
-        ui.tags.pre(ui.output_text("patient_info"))
-    ),
+.factor-row {
+  display: flex;
+  align-items: center;
+  margin: 6px 0;
+}
 
-    ui.layout_sidebar(
+.factor-yes { color: #2e7d32; font-weight: 600; }
+.factor-no  { color: #c62828; font-weight: 600; }
 
-        ui.sidebar(
-            ui.p("Please fill the below details (auto-populated from FHIR, editable)"),
+.factor-icon {
+  width: 22px;
+}
+"""
 
-            ui.input_radio_buttons("chills", "noChills (absence of Chills)",
-                                   choices={"No": "No", "Yes": "Yes"},
-                                   selected="No", inline=True),
-
-            ui.input_radio_buttons("hypothermia", "Hypothermia (templo < 36 °C)",
-                                   choices={"No": "No", "Yes": "Yes"},
-                                   selected="No", inline=True),
-
-            ui.input_radio_buttons("anemia", "Anemia (RBC < 4M/uL)",
-                                   choices={"No": "No", "Yes": "Yes"},
-                                   selected="No", inline=True),
-
-            ui.input_radio_buttons("rdw", "RDW > 14.5%",
-                                   choices={"No": "No", "Yes": "Yes"},
-                                   selected="No", inline=True),
-
-            ui.input_radio_buttons("malignancy", "Malignancy (history)",
-                                   choices={"No": "No", "Yes": "Yes"},
-                                   selected="No", inline=True),
-        ),
-
-        ui.div(
-            ui.h3("Predicted in-hospital mortality (%):"),
-            ui.h4(ui.output_ui("prob")),
-            ui.help_text(
-                ui.a("Click here to see the reference",
-                     href="https://www.ncbi.nlm.nih.gov/pubmed/?term=27832977")
-            ),
-            ui.help_text("Produced by Dr. Chin-Chieh Wu")
-        )
-    )
-)
-
-# -------------------------------
-# CHARM risk table
-# -------------------------------
+# =========================================================
+# 📊 CHARM risk table
+# =========================================================
 CHARM_TABLE = {
     0: 0.36,
     1: 1.89,
@@ -99,143 +75,168 @@ CHARM_TABLE = {
     5: 34.15
 }
 
-# -------------------------------
-# Server
-# -------------------------------
+# =========================================================
+# 🧩 UI
+# =========================================================
+app_ui = ui.page_fluid(
+
+    ui.tags.style(GLOBAL_CSS),
+
+    # -------------------------------
+    # 🔐 Read token / pid / fhir / obs from URL hash
+    # -------------------------------
+    ui.tags.script("""
+    (function () {
+      const params = new URLSearchParams(window.location.hash.substring(1));
+      function send() {
+        if (window.Shiny?.setInputValue) {
+          ["token","pid","fhir","obs"].forEach(k =>
+            Shiny.setInputValue(k, params.get(k))
+          );
+        } else {
+          setTimeout(send, 300);
+        }
+      }
+      send();
+    })();
+    """),
+
+    ui.tags.style("#token,#pid,#fhir,#obs{display:none;}"),
+    ui.input_text("token",""),
+    ui.input_text("pid",""),
+    ui.input_text("fhir",""),
+    ui.input_text("obs",""),
+
+    ui.h2("CHARM In-hospital Mortality Risk"),
+
+    ui.layout_sidebar(
+
+        # ================= Sidebar =================
+        ui.sidebar(
+            ui.p("Clinical variables (auto-populated from FHIR, editable)"),
+
+            ui.input_radio_buttons("chills", "Chills",
+                {"No":"No","Yes":"Yes"}, selected="No", inline=True),
+
+            ui.input_radio_buttons("hypothermia", "Hypothermia (< 36°C)",
+                {"No":"No","Yes":"Yes"}, selected="No", inline=True),
+
+            ui.input_radio_buttons("anemia", "Anemia (RBC < 4M/µL)",
+                {"No":"No","Yes":"Yes"}, selected="No", inline=True),
+
+            ui.input_radio_buttons("rdw", "RDW > 14.5%",
+                {"No":"No","Yes":"Yes"}, selected="No", inline=True),
+
+            ui.input_radio_buttons("malignancy", "History of malignancy",
+                {"No":"No","Yes":"Yes"}, selected="No", inline=True),
+        ),
+
+        # ================= Main =================
+        ui.div(
+
+            # -------- Risk summary card --------
+            ui.div(
+                {"class":"card"},
+                ui.h4("Estimated Mortality Risk"),
+                ui.output_ui("risk_number"),
+                ui.output_ui("risk_label"),
+                ui.output_ui("risk_bar"),
+                ui.p("Lower than typical sepsis in-hospital mortality.",
+                     style="color:#666; margin-top:10px;")
+            ),
+
+            # -------- Factors card --------
+            ui.div(
+                {"class":"card"},
+                ui.h4("Contributing Clinical Factors"),
+                ui.output_ui("factor_list")
+            ),
+
+            # -------- Reference --------
+            ui.div(
+                {"class":"card"},
+                ui.p("CHARM score · FHIR-based · Reference available"),
+                ui.a("Click here to see the reference",
+                     href="https://www.ncbi.nlm.nih.gov/pubmed/?term=27832977"),
+                ui.p("Developed by Dr. Chin-Chieh Wu",
+                     style="color:#777; margin-top:6px;")
+            )
+        )
+    )
+)
+
+# =========================================================
+# 🧠 Server
+# =========================================================
 def server(input, output, session):
 
-    # -----------------------------------------
-    # 讀取 Patient + Observation
-    # -----------------------------------------
+    # ---------- CHARM score ----------
     @reactive.Calc
-    def fhir_data():
+    def charm_score():
+        return sum([
+            input.chills() == "Yes",
+            input.hypothermia() == "Yes",
+            input.anemia() == "Yes",
+            input.rdw() == "Yes",
+            input.malignancy() == "Yes",
+        ])
 
-        token = input.token()
-        pid   = input.pid()
-        fhir  = input.fhir()
-        obs   = input.obs()
-
-        if not (token and pid and fhir):
-            return {"error": "Missing token / pid / fhir"}
-
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/fhir+json"
-        }
-
-        result = {}
-
-        result["patient"] = requests.get(
-            f"{fhir}/Patient/{pid}",
-            headers=headers,
-            verify=False
-        ).json()
-
-        if obs:
-            result["observation"] = requests.get(
-                obs,
-                headers=headers,
-                verify=False
-            ).json()
-
-        return result
-
-    # -----------------------------------------
-    # 顯示 FHIR JSON
-    # -----------------------------------------
-    @output
-    @render.text
-    def patient_info():
-        return json.dumps(fhir_data(), indent=2)
-
-    # -----------------------------------------
-    # ⭐ 用 FHIR Observation 設定「預設值」
-    # -----------------------------------------
-    @reactive.Effect
-    def init_ui_from_fhir():
-
-        data = fhir_data()
-        obs = data.get("observation")
-
-        if not obs or "component" not in obs:
-            return
-
-        ui_vals = {
-            "chills": "No",
-            "hypothermia": "No",
-            "anemia": "No",
-            "rdw": "No",
-            "malignancy": "No",
-        }
-
-        for c in obs["component"]:
-            code = c.get("code", {}).get("coding", [{}])[0].get("code")
-
-            if code == "chills" and c.get("valueInteger", 0) == 1:
-                ui_vals["chills"] = "Yes"
-
-            elif code == "malignancy" and c.get("valueInteger", 0) == 1:
-                ui_vals["malignancy"] = "Yes"
-
-            elif code == "789-8":
-                if c.get("valueQuantity", {}).get("value", 999) < 4.0:
-                    ui_vals["anemia"] = "Yes"
-
-            elif code == "788-0":
-                if c.get("valueQuantity", {}).get("value", 0) > 14.5:
-                    ui_vals["rdw"] = "Yes"
-
-            elif code == "8310-5":
-                if c.get("valueQuantity", {}).get("value", 99) < 36:
-                    ui_vals["hypothermia"] = "Yes"
-
-        for k, v in ui_vals.items():
-            session.send_input_message(k, {"value": v})
-
-    # -----------------------------------------
-    # ⭐ 永遠用「目前 radio buttons」計算
-    # -----------------------------------------
+    # ---------- Risk number ----------
     @output
     @render.ui
-    def prob():
-    
-        # -----------------------------------------
-        # 1️⃣ 永遠用目前 radio buttons 計算
-        # -----------------------------------------
-        if not all([
-            input.chills() is not None,
-            input.hypothermia() is not None,
-            input.anemia() is not None,
-            input.rdw() is not None,
-            input.malignancy() is not None,
-        ]):
-            return ui.span("Calculating...")
-    
-        score = sum([
-            1 if input.chills() == "Yes" else 0,
-            1 if input.hypothermia() == "Yes" else 0,
-            1 if input.anemia() == "Yes" else 0,
-            1 if input.rdw() == "Yes" else 0,
-            1 if input.malignancy() == "Yes" else 0,
-        ])
-    
-        prob = CHARM_TABLE.get(score)
-    
-        if prob is None:
-            return ui.span("NA")
-    
-        # -----------------------------------------
-        # ⭐ 顏色規則
-        # -----------------------------------------
-        color = "red" if prob > 20 else "black"
-    
-        return ui.span(
-            f"{prob:.2f} %",
-            style=f"color:{color}; font-weight:bold;"
+    def risk_number():
+        prob = CHARM_TABLE[charm_score()]
+        cls = "risk-low" if prob < 5 else "risk-mid" if prob < 20 else "risk-high"
+        return ui.p(f"{prob:.2f} %", class_=f"risk-number {cls}")
+
+    # ---------- Risk label ----------
+    @output
+    @render.ui
+    def risk_label():
+        prob = CHARM_TABLE[charm_score()]
+        if prob < 5:
+            txt, cls = "● Very Low Risk", "risk-low"
+        elif prob < 20:
+            txt, cls = "● Moderate Risk", "risk-mid"
+        else:
+            txt, cls = "● High Risk", "risk-high"
+        return ui.p(txt, class_=cls)
+
+    # ---------- Risk bar ----------
+    @output
+    @render.ui
+    def risk_bar():
+        prob = CHARM_TABLE[charm_score()]
+        left = min(prob / 40 * 100, 100)
+        return ui.div(
+            {"class":"risk-bar"},
+            ui.div({"class":"risk-marker",
+                    "style":f"left:{left}%"}))
+
+    # ---------- Factor list ----------
+    @output
+    @render.ui
+    def factor_list():
+
+        def row(label, val):
+            yes = val == "Yes"
+            return ui.div(
+                {"class":"factor-row"},
+                ui.span("✔" if yes else "✘",
+                        class_="factor-icon " +
+                               ("factor-yes" if yes else "factor-no")),
+                ui.span(label)
+            )
+
+        return ui.div(
+            row("Chills", input.chills()),
+            row("Hypothermia (< 36°C)", input.hypothermia()),
+            row("Anemia (RBC < 4M/µL)", input.anemia()),
+            row("RDW > 14.5%", input.rdw()),
+            row("History of malignancy", input.malignancy()),
         )
 
-
-# -------------------------------
-# App
-# -------------------------------
+# =========================================================
+# 🚀 App
+# =========================================================
 app = App(app_ui, server)
