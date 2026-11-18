@@ -160,7 +160,7 @@ http://127.0.0.1:8000/#token=<ACCESS_TOKEN>&pid=<PATIENT_ID>&fhir=<FHIR_BASE_URL
 介面保留以下標示：
 
 - Produced by Dr. Chin-Chieh Wu
-- UI enhance and implement in SMART on FHIR by lenkun25369-ui
+- UI enhance and implement in SMART on FHIR by Howard (Github:lenkun25369-ui)
 
 本次檢視時儲存庫沒有 LICENSE 檔；公開程式碼不等於已授予開源再利用權利。如需再散布或商業使用，請向權利人確認。
 
